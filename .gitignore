@@ -3,6 +3,7 @@
 /outputs/*
 /testing/*
 *.npz
+*.pyc
 ### PyDev ###
 *.pydevproject
 .project

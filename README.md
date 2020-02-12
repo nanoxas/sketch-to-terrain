@@ -4,7 +4,12 @@ This is my implementation of the following paper. Guérin, Éric, Julie Digne, �
 
 I decided to use Keras with Tensorflow as backend. I used the indications provided by the author in pix2pix, with no BN.
 I decided to add noise to the bottleneck of the U-Net to achieve more varability and to provide more stability in training as well.
+
+
 I used NASA Visible Earth Topography images to to extract the data, and pysheds and georasters to do the corresponding processing. 
+
+PySheds: <https://github.com/mdbartos/pysheds>
+GeoRasters: <https://github.com/ozak/georasters>
 ## Results ##
 
 ### Generated image is on the left. Image used to extract the sketches right. ### 

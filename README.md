@@ -29,12 +29,11 @@ Nevertheless, the result is impressive and I want to create a fully procedurally
 I Used Unity to generate a fully procedural render of the terrains with procedural splatmapping as well. Everything runs live, I will be sharing the code soon!
  Here is the result!
 
-![ridges](ridges.png)
-![rivers](rivers.png)
-![peaks](peaks.png)
-![basins](basins.png)
+![all_sketches](ridges.png)
 
+### Generated DEM###
 ![DEM](DLstamp.png)
+### Render ###
 ![render](terrain_render.png)
 
 

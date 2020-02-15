@@ -1,4 +1,4 @@
-# Sketch to Terrain Pix2Pix #
+﻿# Sketch to Terrain Pix2Pix #
 ## Implementation ##
 This is my implementation of the following paper. Guérin, Éric, Julie Digne, Éric Galin, Adrien Peytavie, Christian Wolf, Bedrich Benes, and Benoît Martinez. “Interactive Example-Based Terrain Authoring with Conditional Generative Adversarial Networks.” ACM Transactions on Graphics 36, no. 6 (2017): 1–13. https://doi.org/10.1145/3130800.3130804. 
 
@@ -24,6 +24,22 @@ The sketches follow the next nomeclature: ridges, rivers, peaks, basins (see pap
 I managed to replicate the results from the paper where I couldn't find the source code. I think the generator can be improved using more recent techniques like the ones I listed below.
 Nevertheless, the result is impressive and I want to create a fully procedurally generated Earth using Unity.
 
+
+## Renders ##
+I Used Unity to generate a fully procedural render of the terrains with procedural splatmapping as well. Everything runs live, I will be sharing the code soon!
+ Here is the result!
+
+![ridges](ridges.png)
+![rivers](rivers.png)
+![peaks](peaks.png)
+![basins](basins.png)
+
+![DEM](DLstamp.png)
+![render](terrain_render.png)
+
+
+
+
 ## Future Work ##
 
 - [ ] Try Spectral normalization.
@@ -31,4 +47,4 @@ Nevertheless, the result is impressive and I want to create a fully procedurally
 - [ ] Find optimal LR.
 - [ ] Try different regularizators on the generator loss.
 - [ ] Try a Discriminator Ensemble.
-- [ ] Create renders of the DEMs.
+- [x] Create renders of the DEMs.

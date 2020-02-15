@@ -31,7 +31,7 @@ I Used Unity to generate a fully procedural render of the terrains with procedur
 
 ![all_sketches](ridges.png)
 
-### Generated DEM###
+### Generated DEM ###
 ![DEM](DLstamp.png)
 ### Render ###
 ![render](terrain_render.png)

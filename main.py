@@ -3,7 +3,7 @@ import numpy as np
 from keras.optimizers import Adam, RMSprop
 import matplotlib.pyplot as plt
 from keras.models import load_model
-#from dataset_builder import *
+from dataset_builder import *
 
 
 def generate_real_samples(dataset, ground_trud_ds, n_samples, patch_size):
@@ -97,7 +97,7 @@ def train_gan():
 
 
 if __name__ == '__main__':
-    # extract_patches_from_raster()
-    # compute_sketches()
+    extract_patches_from_raster()
+    compute_sketches()
     # train_gan()
-    test_gan()
+    # test_gan()

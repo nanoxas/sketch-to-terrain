@@ -9,14 +9,14 @@ import georasters as gr
 from geopandas.io import file
 import cv2
 from skimage.morphology import skeletonize
-
+#
+import os
 
 def extract_patches_from_raster():
     count = 0
-    for raster_file in Path('./world_map').glob('**/*.tif'):
+    for raster_file in Path('./world_map').glob('**/*.TIF'):
         data = gr.from_file(str(raster_file))
         raster_blocks = view_as_blocks(data.raster, (225, 225))
-
         for i in range(raster_blocks.shape[0]):
             for j in range(raster_blocks.shape[1]):
                 raster_data = raster_blocks[i, j]
@@ -30,8 +30,8 @@ def extract_patches_from_raster():
                 data_out_downsampled = gr.GeoRaster(
                     src,
                     data.geot,
-                    fill_value=0,  # changed due to errors, not documented TODO: figure out what it does on your own
-                    nodata_value=0,  # same
+                    fill_value=-10,
+                    nodata_value=-1,
                     projection=data.projection,
                     datatype=data.datatype,
                 )
@@ -41,8 +41,8 @@ def extract_patches_from_raster():
                 data_out = gr.GeoRaster(
                     raster_data,
                     data.geot,
-                    fill_value=0,
-                    nodata_value=0,
+                    fill_value=-10,
+                    nodata_value=-1,
                     projection=data.projection,
                     datatype=data.datatype,
                 )
@@ -73,17 +73,18 @@ def compute_rivers(tiff_image):
         downsampled_rivers,
         dstsize=(225, 225))
     upsampled_rivers = (upsampled_rivers - np.amin(upsampled_rivers)) / \
-                       (np.amax(upsampled_rivers) - np.amin(upsampled_rivers))
+        (np.amax(upsampled_rivers) - np.amin(upsampled_rivers))
     upsampled_rivers = np.array(upsampled_rivers * 255, dtype=np.uint8)
     _, thresholded_river = cv2.threshold(upsampled_rivers, 127, 255, cv2.THRESH_BINARY)
     thresholded_river[thresholded_river == 255] = 1
     skeletonized_rivers = skeletonize(thresholded_river)
 
     return np.expand_dims(skeletonized_rivers, axis=-
-    1), np.expand_dims(upsampled_depressions, axis=-1)
+                          1), np.expand_dims(upsampled_depressions, axis=-1)
 
 
 def compute_ridges(tiff_image):
+
     grid = Grid.from_raster(str(tiff_image), data_name='dem')
     grid.dem = grid.dem.max() - grid.dem
     peaks = grid.detect_depressions('dem')
@@ -104,7 +105,7 @@ def compute_ridges(tiff_image):
         downsampled_ridges,
         dstsize=(225, 225))
     upsampled_ridges = (upsampled_ridges - np.amin(upsampled_ridges)) / \
-                       (np.amax(upsampled_ridges) - np.amin(upsampled_ridges))
+        (np.amax(upsampled_ridges) - np.amin(upsampled_ridges))
     upsampled_ridges = np.array(upsampled_ridges * 255, dtype=np.uint8)
     _, thresholded_ridges = cv2.threshold(upsampled_ridges, 150, 255, cv2.THRESH_BINARY)
     thresholded_ridges[thresholded_ridges == 255] = 1
@@ -119,8 +120,8 @@ def compute_sketches():
     sketch_maps = []
     for filename in Path('./data_downsampled_blurred').glob('**/*.tif'):
         file_path = str(filename)
-        file_id = file_path.split('/')
-        detailed_data = gr.from_file('./data/' + file_id[-1])
+        file_id = file_path.split(os.sep)[-1]
+        detailed_data = gr.from_file(os.path.join('./data/' ,file_id))
         data = gr.from_file(str(filename))
         if data.mean() < 5:
             continue
@@ -129,7 +130,7 @@ def compute_sketches():
         height_map = np.array(detailed_data.raster, dtype=np.float32)
         height_map = np.expand_dims(height_map, axis=-1)
         height_map = (height_map - np.amin(height_map)) / \
-                     (np.amax(height_map) - np.amin(height_map))
+            (np.amax(height_map) - np.amin(height_map))
         height_map = height_map * 2 - 1
 
         sketch_map = np.stack((ridges, rivers, peaks, basins), axis=2)

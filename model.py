@@ -79,7 +79,7 @@ def UNet(shape):
     conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
     conv10 = Conv2D(1, 1, activation='tanh')(conv9)
 
-    model = Model(input=[inputs, noise], output=conv10)
+    model = Model([inputs, noise], conv10)
     model.summary()
     return model
 

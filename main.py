@@ -97,7 +97,7 @@ def train_gan():
 
 
 if __name__ == '__main__':
-    extract_patches_from_raster()
-    compute_sketches()
-    # train_gan()
+    # extract_patches_from_raster()
+    # compute_sketches()
+    train_gan()
     # test_gan()

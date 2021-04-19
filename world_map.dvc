@@ -1,0 +1,5 @@
+outs:
+- md5: e3ccf8273476874a3f8423e6e0766e08.dir
+  size: 121977156
+  nfiles: 8
+  path: world_map

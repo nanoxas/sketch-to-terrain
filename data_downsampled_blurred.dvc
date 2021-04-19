@@ -1,0 +1,5 @@
+outs:
+- md5: a4803d859e851e9e7538e642751148fa.dir
+  size: 238325760
+  nfiles: 18432
+  path: data_downsampled_blurred

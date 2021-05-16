@@ -97,7 +97,11 @@ def train_gan():
 
 
 if __name__ == '__main__':
+    # TODO: clutch into sequential steps
+    recombine_heightmap_sattelite_data()
+    # extract_patch_simple_map()
+
     # extract_patches_from_raster()
     # compute_sketches()
-    train_gan()
+    # train_gan()
     # test_gan()

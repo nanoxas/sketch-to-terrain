@@ -24,62 +24,69 @@ def UNet(shape):
     noise = Input((K.int_shape(conv5)[1], K.int_shape(conv5)[2], K.int_shape(conv5)[3]))
     conv5 = Concatenate()([conv5, noise])
 
-    up6 = Conv2D(
-        512,
-        2,
-        activation='relu',
-        padding='same')(
-        UpSampling2D(
-            size=(
-                2,
-                2))(conv5))
-    merge6 = Concatenate()([conv4, up6])
-    conv6 = Conv2D(512, 3, activation='relu', padding='same')(merge6)
-    conv6 = Conv2D(512, 3, activation='relu', padding='same')(conv6)
+    def get_scale_up(pr_input):
 
-    up7 = Conv2D(
-        256,
-        2,
-        activation='relu',
-        padding='same')(
-        UpSampling2D(
-            size=(
-                2,
-                2))(conv6))
-    merge7 = Concatenate()([conv3, up7])
-    conv7 = Conv2D(256, 3, activation='relu', padding='same')(merge7)
-    conv7 = Conv2D(256, 3, activation='relu', padding='same')(conv7)
+        up6 = Conv2D(
+            512,
+            2,
+            activation='relu',
+            padding='same')(
+            UpSampling2D(
+                size=(
+                    2,
+                    2))(pr_input))
+        merge6 = Concatenate()([conv4, up6])
+        conv6 = Conv2D(512, 3, activation='relu', padding='same')(merge6)
+        conv6 = Conv2D(512, 3, activation='relu', padding='same')(conv6)
 
-    up8 = Conv2D(
-        128,
-        2,
-        activation='relu',
-        padding='same')(
-        UpSampling2D(
-            size=(
-                2,
-                2))(conv7))
-    merge8 = Concatenate()([conv2, up8])
-    conv8 = Conv2D(128, 3, activation='relu', padding='same')(merge8)
-    conv8 = Conv2D(128, 3, activation='relu', padding='same')(conv8)
+        up7 = Conv2D(
+            256,
+            2,
+            activation='relu',
+            padding='same')(
+            UpSampling2D(
+                size=(
+                    2,
+                    2))(conv6))
+        merge7 = Concatenate()([conv3, up7])
+        conv7 = Conv2D(256, 3, activation='relu', padding='same')(merge7)
+        conv7 = Conv2D(256, 3, activation='relu', padding='same')(conv7)
 
-    up9 = Conv2D(
-        64,
-        2,
-        activation='relu',
-        padding='same')(
-        UpSampling2D(
-            size=(
-                2,
-                2))(conv8))
-    up9 = ZeroPadding2D(((0, 1), (0, 1)))(up9)
-    merge9 = Concatenate()([conv1, up9])
-    conv9 = Conv2D(64, 3, activation='relu', padding='same')(merge9)
-    conv9 = Conv2D(64, 3, activation='relu', padding='same')(conv9)
-    conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
-    conv10 = Conv2D(1, 1, activation='tanh')(conv9)
+        up8 = Conv2D(
+            128,
+            2,
+            activation='relu',
+            padding='same')(
+            UpSampling2D(
+                size=(
+                    2,
+                    2))(conv7))
+        merge8 = Concatenate()([conv2, up8])
+        conv8 = Conv2D(128, 3, activation='relu', padding='same')(merge8)
+        conv8 = Conv2D(128, 3, activation='relu', padding='same')(conv8)
 
-    model = Model([inputs, noise], conv10)
+        up9 = Conv2D(
+            64,
+            2,
+            activation='relu',
+            padding='same')(
+            UpSampling2D(
+                size=(
+                    2,
+                    2))(conv8))
+        up9 = ZeroPadding2D(((0, 1), (0, 1)))(up9)
+        merge9 = Concatenate()([conv1, up9])
+        conv9 = Conv2D(64, 3, activation='relu', padding='same')(merge9)
+        conv9 = Conv2D(64, 3, activation='relu', padding='same')(conv9)
+        conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
+        conv10 = Conv2D(1, 1, activation='tanh')(conv9)
+
+    highmap_output = get_scale_up(conv5)
+    satelite_output = get_scale_up(conv5)
+
+
+
+    model = Model([inputs, noise], [highmap_output, satelite_output])
     model.summary()
     return model
 

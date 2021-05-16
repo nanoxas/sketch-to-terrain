@@ -1,16 +1,46 @@
-import matplotlib.pyplot as plt
-from pysheds.grid import Grid
-import pyproj
-import numpy as np
-import cv2
-from skimage.util import view_as_blocks
-from pathlib import Path
-import georasters as gr
-from geopandas.io import file
-import cv2
-from skimage.morphology import skeletonize
-#
+import itertools
 import os
+from pathlib import Path
+
+import cv2
+import georasters as gr
+import numpy as np
+from PIL import Image
+from pysheds.grid import Grid
+from skimage.morphology import skeletonize
+from skimage.util import view_as_blocks
+from tqdm import tqdm
+
+
+def extract_patch_simple_map():
+    count = 0
+    base_save_path = Path('./data_satelite/')
+    # TODO: move filtering information at the beginning of data processing (add metadata to trainin data)
+    for map_part in Path('./world_map_september').glob('**/*.png'):
+        print('Processing: ' + str(map_part))
+        data = np.asarray(Image.open(str(map_part)))
+        raster_blocks = view_as_blocks(data, (225, 225, 3))
+        t_total = np.product(raster_blocks.shape[:2])
+        for i, j in tqdm(itertools.product(range(raster_blocks.shape[0]), range(raster_blocks.shape[1])),
+                         total=t_total):
+            block_id = str(count) + str(i) + str(j)
+            data_reference = gr.from_file('./data/data_q' + block_id + '.tif')
+            if data_reference.mean() < 5:
+                count += 1
+                continue
+            Image.fromarray(raster_blocks[i, j].squeeze()).save(str(base_save_path.joinpath(block_id)) + '.png')
+            count += 1
+
+
+def recombine_heightmap_sattelite_data():
+    # TODO: make sure the ordering is the same as in heightmap
+    satelite_data = []
+    for filename in tqdm(Path('./data_satelite').glob('**/*.png')):
+        satelite_data.append(np.asarray(Image.open(filename)))
+    satelite_datta_arr = np.array(satelite_data)
+    data = np.load('training_data.npz')
+    np.savez('training_data.npz', x=data['x'], y=data['y'], y_satelite=satelite_datta_arr)
+
 
 def extract_patches_from_raster():
     count = 0
@@ -73,18 +103,17 @@ def compute_rivers(tiff_image):
         downsampled_rivers,
         dstsize=(225, 225))
     upsampled_rivers = (upsampled_rivers - np.amin(upsampled_rivers)) / \
-        (np.amax(upsampled_rivers) - np.amin(upsampled_rivers))
+                       (np.amax(upsampled_rivers) - np.amin(upsampled_rivers))
     upsampled_rivers = np.array(upsampled_rivers * 255, dtype=np.uint8)
     _, thresholded_river = cv2.threshold(upsampled_rivers, 127, 255, cv2.THRESH_BINARY)
     thresholded_river[thresholded_river == 255] = 1
     skeletonized_rivers = skeletonize(thresholded_river)
 
     return np.expand_dims(skeletonized_rivers, axis=-
-                          1), np.expand_dims(upsampled_depressions, axis=-1)
+    1), np.expand_dims(upsampled_depressions, axis=-1)
 
 
 def compute_ridges(tiff_image):
-
     grid = Grid.from_raster(str(tiff_image), data_name='dem')
     grid.dem = grid.dem.max() - grid.dem
     peaks = grid.detect_depressions('dem')
@@ -105,7 +134,7 @@ def compute_ridges(tiff_image):
         downsampled_ridges,
         dstsize=(225, 225))
     upsampled_ridges = (upsampled_ridges - np.amin(upsampled_ridges)) / \
-        (np.amax(upsampled_ridges) - np.amin(upsampled_ridges))
+                       (np.amax(upsampled_ridges) - np.amin(upsampled_ridges))
     upsampled_ridges = np.array(upsampled_ridges * 255, dtype=np.uint8)
     _, thresholded_ridges = cv2.threshold(upsampled_ridges, 150, 255, cv2.THRESH_BINARY)
     thresholded_ridges[thresholded_ridges == 255] = 1
@@ -121,7 +150,7 @@ def compute_sketches():
     for filename in Path('./data_downsampled_blurred').glob('**/*.tif'):
         file_path = str(filename)
         file_id = file_path.split(os.sep)[-1]
-        detailed_data = gr.from_file(os.path.join('./data/' ,file_id))
+        detailed_data = gr.from_file(os.path.join('./data/', file_id))
         data = gr.from_file(str(filename))
         if data.mean() < 5:
             continue
@@ -130,7 +159,7 @@ def compute_sketches():
         height_map = np.array(detailed_data.raster, dtype=np.float32)
         height_map = np.expand_dims(height_map, axis=-1)
         height_map = (height_map - np.amin(height_map)) / \
-            (np.amax(height_map) - np.amin(height_map))
+                     (np.amax(height_map) - np.amin(height_map))
         height_map = height_map * 2 - 1
 
         sketch_map = np.stack((ridges, rivers, peaks, basins), axis=2)

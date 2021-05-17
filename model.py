@@ -24,8 +24,7 @@ def UNet(shape):
     noise = Input((K.int_shape(conv5)[1], K.int_shape(conv5)[2], K.int_shape(conv5)[3]))
     conv5 = Concatenate()([conv5, noise])
 
-    def get_scale_up(pr_input):
-
+    def get_scale_up(pr_input, out_channels):
         up6 = Conv2D(
             512,
             2,
@@ -79,14 +78,14 @@ def UNet(shape):
         conv9 = Conv2D(64, 3, activation='relu', padding='same')(merge9)
         conv9 = Conv2D(64, 3, activation='relu', padding='same')(conv9)
         conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
-        conv10 = Conv2D(1, 1, activation='tanh')(conv9)
+        conv10 = Conv2D(out_channels, 1, activation='tanh')(conv9)
+        return conv10
 
-    highmap_output = get_scale_up(conv5)
-    satelite_output = get_scale_up(conv5)
+    satelite_output = get_scale_up(conv5, 3)
+    highmap_output = get_scale_up(conv5, 1)
+    c_out = Concatenate()([highmap_output, satelite_output])
 
-
-
-    model = Model([inputs, noise], [highmap_output, satelite_output])
+    model = Model([inputs, noise], c_out)
     model.summary()
     return model
 

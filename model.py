@@ -140,7 +140,8 @@ def UNet(shape, spectral_norm: bool=Fa, batch_norm: bool=True):
         conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
         conv10 = Conv2D(out_channels, 1, activation='tanh')(conv9)
         return conv10
-
+	
+	#Main part of generator
     conv1, conv2, conv3, conv4, conv5, noise = get_scale_down(inputs,
                                                        spectral_norm,
                                                        batch_norm)
@@ -217,6 +218,9 @@ def patch_discriminator(shape, spectral_norm: bool=True, batch_norm: bool=True):
 
 
 def mount_discriminator_generator(generator, discriminator, image_shape):
+	"""
+	#TODO - add description
+	"""
     discriminator.trainable = False
     input_gen = Input(shape=image_shape)
     input_noise = Input(shape=(14, 14, 1024))

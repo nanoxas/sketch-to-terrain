@@ -50,7 +50,7 @@ def test_gan():
         sample_images(terrain_generator, source, target, i)
 
 
-def train_gan(spectral_norm, batch_norm):
+def train_gan(spectral_norm: bool=True, batch_norm: bool=False):
     data = np.load('training_data.npz')
     XTrain = data['x']
     YTrain = data['y']

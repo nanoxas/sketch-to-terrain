@@ -25,14 +25,16 @@ def generate_fake_samples(g_model, dataset, patch_size):
 def sample_images(generator, source, target_heightmap, target_satelite, idx):
     print(target_heightmap.shape)
     target_heightmap = np.uint8(target_heightmap * 127.5 + 127.5)
+    target_satelite = np.uint8(target_satelite * 255)
     w_noise = np.random.normal(0, 1, (1, 14, 14, 1024))
     predicted = generator.predict([source, w_noise])
-    im = np.uint8(predicted[0, ...] * 127.5 + 127.5)
+    im_heightmap = np.uint8(predicted[0, ...] * 127.5 + 127.5)
+    im_satelite = np.uint8(predicted[0, ...] * 255)
     im_source = np.uint8(source[0, ...] * 255)
     print(im_source.shape)
-    im_c = np.concatenate((im[..., 0], np.squeeze(target_heightmap),
+    im_c = np.concatenate((im_heightmap[..., 0], np.squeeze(target_heightmap),
                            im_source[..., 0], im_source[..., 1], im_source[..., 2], im_source[..., 3]), axis=-1)
-    im_sat = np.concatenate((np.uint8(predicted.squeeze()[:, :, 1:] * 255), target_satelite), axis=1)
+    im_sat = np.concatenate((im_satelite[:,:,1:], np.squeeze(target_satelite)), axis=1)
     plt.imsave('./outputs/sketch_conversion' + str(idx) + '.png', im_c, cmap='terrain')
     plt.imsave('./outputs/sketch_conversion' + 'sat' + str(idx) + '.png', im_sat)
 
@@ -48,7 +50,7 @@ def test_gan():
         sample_images(terrain_generator, source, target, i)
 
 
-def train_gan():
+def train_gan(spectral_norm, batch_norm):
     data = np.load('training_data.npz')
     XTrain = data['x']
     YTrain = data['y']
@@ -56,9 +58,9 @@ def train_gan():
     input_shape_gen = (XTrain.shape[1], XTrain.shape[2], XTrain.shape[3])
     input_shape_disc = (YTrain.shape[1], YTrain.shape[2], YTrain.shape[3] + YTrain_satelite.shape[3])
 
-    terrain_generator = UNet(input_shape_gen)
-    terrain_discriminator = patch_discriminator(input_shape_disc)
-    optd = Adam(0.0001, 0.5)
+    terrain_generator = UNet(input_shape_gen, spectral_norm, batch_norm)
+    terrain_discriminator = patch_discriminator(input_shape_disc, spectral_norm, batch_norm)
+    optd = Adam(learning_rate=0.00005, beta_1=0.5)
     terrain_discriminator.compile(loss='binary_crossentropy', optimizer=optd)
     composite_model = mount_discriminator_generator(
         terrain_generator, terrain_discriminator, input_shape_gen)
@@ -74,17 +76,20 @@ def train_gan():
     min_loss = 999
     avg_loss = 0
     avg_dloss = 0
+    np.random.seed(42)
     for i in range(n_steps):
+        print('n_steps: {}'.format(i))
         X_real, labels_real, Y_target_h, Y_target_s = generate_real_samples(XTrain, YTrain, YTrain_satelite, n_batch,
                                                                             patch_size)
         Y_target_h[np.isnan(Y_target_h)] = 0
         X_real[np.isnan(X_real)] = 0
-        Y_target = np.concatenate([Y_target_h, Y_target_s], axis=-1)
+        Y_target_s[np.isnan(Y_target_s)] = 0
+        Y_target = np.concatenate([Y_target_h, (Y_target_s/255.0)], axis=3)
 
         Y_fake, labels_fake = generate_fake_samples(terrain_generator, X_real, patch_size)
         w_noise = np.random.normal(0, 1, (n_batch, 14, 14, 1024))
         losses_composite = composite_model.train_on_batch(
-            [X_real, w_noise], [labels_real, Y_target_h])
+            [X_real, w_noise], [labels_real, Y_target])
 
         loss_discriminator_fake = terrain_discriminator.train_on_batch(
             [Y_fake, X_real], labels_fake)
@@ -95,11 +100,62 @@ def train_gan():
         avg_loss = avg_loss + (losses_composite[0] - avg_loss) / (i + 1)
         print('total loss:' + str(avg_loss) + ' d_loss:' + str(avg_dloss))
 
-        if i % 100 == 0:
-            sample_images(terrain_generator, X_real[0:1, ...], Y_target_h[0, ...], YTrain_satelite[0, ...], i)
-        if i % 500 == 0:
+        if i % 20 == 0:
+            sample_images(terrain_generator, X_real[0:1, ...], Y_target_h[0, ...], (Y_target_s/255.0)[0, ...], i)
+        if i % 200 == 0:
             terrain_discriminator.save('terrain_discriminator' + str(i) + '.h5', True)
             terrain_generator.save('terrain_generator' + str(i) + '.h5', True)
+
+
+def train_better_gan(number_of_last_step: int):
+    data = np.load('training_data.npz')
+    XTrain = data['x']
+    YTrain = data['y']
+    YTrain_satelite = data['y_satelite']
+    input_shape_gen = (XTrain.shape[1], XTrain.shape[2], XTrain.shape[3])
+    input_shape_disc = (YTrain.shape[1], YTrain.shape[2], YTrain.shape[3] + YTrain_satelite.shape[3])
+
+    terrain_generator = load_model(f'terrain_generator{number_of_last_step}.h5')
+    terrain_discriminator = load_model(f'terrain_discriminator{number_of_last_step}.h5')
+    optd = SGD(learning_rate=0.001, momentum=0.2)
+
+    n_epochs, n_batch, = 100, 20
+    bat_per_epo = int(len(XTrain) / n_batch)
+    patch_size = 15
+    n_steps = bat_per_epo * n_epochs
+    min_loss = 999
+    avg_loss = 0
+    avg_dloss = 0
+    np.random.seed(42)
+    for i in range(n_steps):
+        if i > number_of_last_step:
+            print('n_steps: {}'.format(i))
+            X_real, labels_real, Y_target_h, Y_target_s = generate_real_samples(XTrain, YTrain, YTrain_satelite, n_batch,
+                                                                                patch_size)
+            Y_target_h[np.isnan(Y_target_h)] = 0
+            X_real[np.isnan(X_real)] = 0
+            Y_target_s[np.isnan(Y_target_s)] = 0
+            Y_target = np.concatenate([Y_target_h, (Y_target_s/255)], axis=3)
+
+            Y_fake, labels_fake = generate_fake_samples(terrain_generator, X_real, patch_size)
+            w_noise = np.random.normal(0, 1, (n_batch, 14, 14, 1024))
+            losses_composite = composite_model.train_on_batch(
+                [X_real, w_noise], [labels_real, Y_target])
+
+            loss_discriminator_fake = terrain_discriminator.train_on_batch(
+                [Y_fake, X_real], labels_fake)
+            loss_discriminator_real = terrain_discriminator.train_on_batch(
+                [Y_target, X_real], labels_real)
+            d_loss = (loss_discriminator_fake + loss_discriminator_real) / 2
+            avg_dloss = avg_dloss + (d_loss - avg_dloss) / (i + 1)
+            avg_loss = avg_loss + (losses_composite[0] - avg_loss) / (i + 1)
+            print('total loss:' + str(avg_loss) + ' d_loss:' + str(avg_dloss))
+
+            if i % 20 == 0:
+                sample_images(terrain_generator, X_real[0:1, ...], Y_target_h[0, ...], (Y_target_s/255)[0, ...], i)
+            if i % 200 == 0:
+                terrain_discriminator.save('terrain_discriminator' + str(i) + '.h5', True)
+                terrain_generator.save('terrain_generator' + str(i) + '.h5', True)
 
 
 if __name__ == '__main__':

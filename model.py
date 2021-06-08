@@ -17,44 +17,40 @@ class TerrainGANBuilder:
         self._map_shape = (225, 225)
         self._unet_repr_size = (14, 14, 1024)
 
-    def build_sketch_to_terrain(self) -> Tuple[tensorflow.keras.Model, ...]:
-        """
-        Initial model. From sketches generate heightmaps.
-        :return: complete
-        """
-        gen_image_shape = self._channels_shape(4)
-        gen_out_shape = self._channels_shape(1)
-        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
-        upsampling_out = self._get_scale_up(downsampling_outs, 1)
+    # USER API
 
-        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_out)
-        discriminator = self._patch_discriminator(gen_out_shape)
+    def build_sketch_to_terrain(self, optimizer) -> Tuple[tensorflow.keras.Model, ...]:
+        return self._build_single(optimizer, in_channels=4, out_channels=1)
 
-        # TODO: explain why this is not trainable
-        discriminator.trainable = False
-        input_gen = Input(shape=gen_image_shape)
-        input_noise = Input(shape=self._unet_repr_size)
-        gen_out = generator([input_gen, input_noise])
-        output_d = discriminator([gen_out, input_gen])
-        full_gan = Model(inputs=[input_gen, input_noise], outputs=[output_d, gen_out])
-
-        return generator, discriminator, full_gan
+    def build_terrain_to_satelite(self, optimizer):
+        return self._build_single(optimizer, in_channels=1, out_channels=3)
 
     def build_sketch_to_satelite(self, optimizer, sequential: bool = True):
-        """
-        From sketches generate heightmaps *and* satellites.
-        :param sequential: If True, satellites will be generated based on information from generated heightmap and
-        sketches, otherwise only sketches will be used. Please refer to the README.md for more information on
-        architecture
-        :return:
-        """
-        """
-        Initial model. From sketches generate heightmaps.
-        :return: complete
-        """
+        if sequential:
+            return self._build_sts_sequential(optimizer)
+        return self._build_sts_parallel(optimizer)
+
+    # END USER API
+
+    def _build_sts_sequential(self, optimizer):
         gen_image_shape = self._channels_shape(4)
         gen_out_shape = self._channels_shape(4)  # 1 channel for heightmap, 3 channels for satellites
-        gen_inputs, downsampling_outs  = self._get_scale_down(gen_image_shape)
+
+        gen_inputs, downsampled_sk_to_height = self._get_scale_down(gen_image_shape)
+        upsampling_heightmap_out = self._get_scale_up(downsampled_sk_to_height, 1)
+
+        _, downsampled_height_to_sat = self._get_scale_down(upsampling_heightmap_out)
+        upsampling_satellite_out = self._get_scale_up(downsampled_height_to_sat, 3)
+
+        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_satellite_out)
+        discriminator = self._patch_discriminator(gen_out_shape)
+
+        return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
+
+    def _build_sts_parallel(self, optimizer):
+        gen_image_shape = self._channels_shape(4)
+        gen_out_shape = self._channels_shape(4)  # 1 channel for heightmap, 3 channels for satellites
+        gen_inputs, downsampling_outs = self._get_scale_down(gen_image_shape)
 
         upsampling_heightmap_out = self._get_scale_up(downsampling_outs, 1)
         upsampling_satellite_out = self._get_scale_up(downsampling_outs, 3)
@@ -66,8 +62,16 @@ class TerrainGANBuilder:
 
         return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
 
-    def build_terrain_to_satelite(self):
-        raise NotImplementedError
+    def _build_single(self, optimizer, in_channels: int, out_channels: int):
+        gen_image_shape = self._channels_shape(in_channels)  # from heightmaps...
+        gen_out_shape = self._channels_shape(out_channels)  # generate sattelites
+        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
+        upsampling_out = self._get_scale_up(downsampling_outs, 3)
+
+        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_out)
+        discriminator = self._patch_discriminator(gen_out_shape)
+
+        return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
 
     def _mount_single(self, optimizer, generator, discriminator, gen_image_shape):
         discriminator.compile(loss='binary_crossentropy', optimizer=optimizer)
@@ -110,14 +114,15 @@ class TerrainGANBuilder:
             out = BatchNormalization()(out)
         return LeakyReLU(alpha=0.2)(out)
 
-    def _get_scale_down(self, shape: Tuple[int, ...]) -> Tuple[Dict[str, Layer], ...]:
+    def _get_scale_down(self, inputs: Tuple[int, ...]) -> Tuple[Dict[str, Layer], ...]:
         """
         Function to calculate first downsampling branch (down conv).
         @Parameters:
         :params inputs - shape of training data
         :return: dict with graph inputs, dict with conv outs
         """
-        inputs = Input(shape=shape)
+        if isinstance(inputs, tuple):
+            inputs = Input(shape=inputs)
         conv1, pool1 = self._get_scale_down_block(inputs, 64)
         conv2, pool2 = self._get_scale_down_block(pool1, 128)
         conv3, pool3 = self._get_scale_down_block(pool2, 256)

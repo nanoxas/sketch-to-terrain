@@ -1,22 +1,15 @@
-from typing import Tuple, Dict, Optional
+from typing import Dict, Tuple
 
 import tensorflow
-from tensorflow.keras.layers import Layer
-from keras.layers import *
-from keras.models import Model
-from keras.initializers import RandomNormal
+import tensorflow.keras.backend as K
+from tensorflow.keras.initializers import RandomNormal
+from tensorflow.keras.layers import (
+    BatchNormalization, Concatenate, Conv2D, Input, Layer, LeakyReLU, MaxPooling2D, ReLU, UpSampling2D, ZeroPadding2D)
+from tensorflow.keras.models import Model
 from tensorflow_addons.layers import SpectralNormalization
-from keras.layers import BatchNormalization
-import keras.backend as K
-
-from enum import Enum
 
 
-class GANType(Enum):
-    VAN = 1
-
-
-class TerrainGAN:
+class TerrainGANBuilder:
     def __init__(self, spec_normalization: bool = False, batch_normalization: bool = False):
         self.spec_normalization = spec_normalization
         self.batch_normalization = batch_normalization
@@ -47,7 +40,7 @@ class TerrainGAN:
 
         return generator, discriminator, full_gan
 
-    def build_sketch_to_satelite(self, sequential: bool = True):
+    def build_sketch_to_satelite(self, optimizer, sequential: bool = True):
         """
         From sketches generate heightmaps *and* satellites.
         :param sequential: If True, satellites will be generated based on information from generated heightmap and
@@ -71,18 +64,21 @@ class TerrainGAN:
         generator = Model([gen_inputs['image_input'], gen_inputs['noise']], concat_out)
         discriminator = self._patch_discriminator(gen_out_shape)
 
-        # TODO: explain why this is not trainable
+        return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
+
+    def build_terrain_to_satelite(self):
+        raise NotImplementedError
+
+    def _mount_single(self, optimizer, generator, discriminator, gen_image_shape):
+        discriminator.compile(loss='binary_crossentropy', optimizer=optimizer)
+        # TODO: explain why trainable False
         discriminator.trainable = False
         input_gen = Input(shape=gen_image_shape)
         input_noise = Input(shape=self._unet_repr_size)
         gen_out = generator([input_gen, input_noise])
         output_d = discriminator([gen_out, input_gen])
         full_gan = Model(inputs=[input_gen, input_noise], outputs=[output_d, gen_out])
-
         return generator, discriminator, full_gan
-
-    def build_terrain_to_satelite(self):
-        raise NotImplementedError
 
     def _channels_shape(self, channels: int) -> Tuple[int, ...]:
         return *self._map_shape, channels
@@ -174,17 +170,3 @@ class TerrainGAN:
             final_layer = SpectralNormalization(final_layer)
         output = final_layer(block5)
         return Model([in_image, cond_image], output)
-
-
-def mount_discriminator_generator(generator, discriminator, image_shape):
-    """
-    TODO: describe and tell why we need discriminator.trainable
-    """
-    discriminator.trainable = False
-    input_gen = Input(shape=image_shape)
-    input_noise = Input(shape=(14, 14, 1024))
-    gen_out = generator([input_gen, input_noise])
-    output_d = discriminator([gen_out, input_gen])
-    model = Model(inputs=[input_gen, input_noise], outputs=[output_d, gen_out])
-    model.summary()
-    return model

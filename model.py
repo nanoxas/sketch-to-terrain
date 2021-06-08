@@ -1,3 +1,7 @@
+from typing import Tuple, Dict, Optional
+
+import tensorflow
+from tensorflow.keras.layers import Layer
 from keras.layers import *
 from keras.models import Model
 from keras.initializers import RandomNormal
@@ -5,222 +9,177 @@ from tensorflow_addons.layers import SpectralNormalization
 from keras.layers import BatchNormalization
 import keras.backend as K
 
+from enum import Enum
 
-def UNet(shape, spectral_norm: bool=Fa, batch_norm: bool=True):
-    """
-	UNet Generator models
-	
-    @Parameters
-    :param shape: shape of image
-    :params spectral_norm: bool=False - add spectral_normalization layers for each downsampling convolution layers
-    :params batch_norm: bool=False - add batch_normalization layers for each downsampling convolution layers
-    :return:
-    """
 
-    inputs = Input(shape)
-    def get_scale_down(inputs, spectral_norm: bool=True, batch_norm: bool=True):
+class GANType(Enum):
+    VAN = 1
+
+
+class TerrainGAN:
+    def __init__(self, spec_normalization: bool = False, batch_normalization: bool = False):
+        self.spec_normalization = spec_normalization
+        self.batch_normalization = batch_normalization
+        self.disc_init_fn = RandomNormal(stddev=0.02)
+        self._map_shape = (255, 255)
+        self._unet_repr_size = (14, 14, 1024)
+
+    def build_sketch_to_terrain(self) -> Tuple[tensorflow.keras.Model, ...]:
+        """
+        Initial model. From sketches generate heightmaps.
+        :return: complete
+        """
+        gen_image_shape = self._channels_shape(4)
+        gen_out_shape = self._channels_shape(1)
+        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
+        upsampling_out = self._get_scale_up(downsampling_outs, 1)
+
+        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_out)
+        discriminator = self._patch_discriminator(gen_out_shape)
+
+        # TODO: explain why this is not trainable
+        discriminator.trainable = False
+        input_gen = Input(shape=gen_image_shape)
+        input_noise = Input(shape=self._unet_repr_size)
+        gen_out = generator([input_gen, input_noise])
+        output_d = discriminator([gen_out, input_gen])
+        full_gan = Model(inputs=[input_gen, input_noise], outputs=[output_d, gen_out])
+
+        return generator, discriminator, full_gan
+
+    def build_sketch_to_satelite(self, sequential: bool = True):
+        """
+        From sketches generate heightmaps *and* satellites.
+        :param sequential: If True, satellites will be generated based on information from generated heightmap and
+        sketches, otherwise only sketches will be used. Please refer to the README.md for more information on
+        architecture
+        :return:
+        """
+        """
+        Initial model. From sketches generate heightmaps.
+        :return: complete
+        """
+        gen_image_shape = self._channels_shape(4)
+        gen_out_shape = self._channels_shape(4)  # 1 channel for heightmap, 3 channels for satellites
+        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
+
+        upsampling_heightmap_out = self._get_scale_up(downsampling_outs, 1)
+        upsampling_satellite_out = self._get_scale_up(downsampling_outs, 3)
+
+        concat_out = Concatenate()([upsampling_heightmap_out, upsampling_satellite_out])
+
+        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], concat_out)
+        discriminator = self._patch_discriminator(gen_out_shape)
+
+        # TODO: explain why this is not trainable
+        discriminator.trainable = False
+        input_gen = Input(shape=gen_image_shape)
+        input_noise = Input(shape=self._unet_repr_size)
+        gen_out = generator([input_gen, input_noise])
+        output_d = discriminator([gen_out, input_gen])
+        full_gan = Model(inputs=[input_gen, input_noise], outputs=[output_d, gen_out])
+
+        return generator, discriminator, full_gan
+
+    def build_terrain_to_satelite(self):
+        raise NotImplementedError
+
+    def _channels_shape(self, channels: int) -> Tuple[int, ...]:
+        return *self._map_shape, channels
+
+    def _add_conv_layer(self, layer: Layer, x) -> Layer:
+        out = layer(x)
+        if self.batch_normalization:
+            out = BatchNormalization()(out)
+        return ReLU(out)
+
+    def _get_scale_down_block(self, previous_output, filter_out: int):
+        conv = self._add_conv_layer(Conv2D(filter_out, 3, padding='same'), previous_output)
+        conv = self._add_conv_layer(Conv2D(filter_out, 3, padding='same'), conv)
+        return conv, MaxPooling2D(pool_size=(2, 2))(conv)
+
+    def _get_scale_up_block(self, previous_output, combine_with, filter_out: int):
+        upsampled = UpSampling2D(size=(2, 2))(previous_output)
+        up = self._add_conv_layer(Conv2D(filter_out, 2, padding='same'), upsampled)
+        merge = Concatenate()([combine_with, up])
+        conv = Conv2D(filter_out, 3, padding='same')(merge)
+        return Conv2D(filter_out, 3, padding='same')(conv)
+
+    def _discriminator_block(self, previous_output, filter_out: int, strides: Tuple[int, int] = (2, 2)):
+        layer = Conv2D(filter_out, (4, 4), strides=strides, padding='same', kernel_initializer=self.disc_init_fn)
+        if self.spec_normalization:
+            layer = SpectralNormalization(layer)
+        out = layer(previous_output)
+        if self.batch_normalization:
+            out = BatchNormalization()(out)
+        return LeakyReLU(alpha=0.2)(out)
+
+    def _get_scale_down(self, shape: Tuple[int, ...]) -> Tuple[Dict[str, Layer], ...]:
         """
         Function to calculate first downsampling branch (down conv).
-
         @Parameters:
-        :params inputs - main shape of image
-        :params spectral_norm: bool=False - add spectral_normalization layers for each downsampling convolution layers
-        :params batch_norm: bool=False - add batch_normalization layers for each downsampling convolution layers
-        :return: conv_5 - last layers before first upsampling layers
+        :params inputs - shape of training data
+        :return: dict with graph inputs, dict with conv outs
         """
-        if spectral_norm:
-            conv1 = SpectralNormalization(Conv2D(64, 3, activation='relu', padding='same'))(inputs)
-            if batch_norm: conv1 = BatchNormalization()(conv1)
-            conv1 = SpectralNormalization(Conv2D(64, 3, activation='relu', padding='same'))(conv1)
-            if batch_norm: conv1 = BatchNormalization()(conv1)
-            pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-            conv2 = SpectralNormalization(Conv2D(128, 3, activation='relu', padding='same'))(pool1)
-            if batch_norm: conv2 = BatchNormalization()(conv2)
-            conv2 = SpectralNormalization(Conv2D(128, 3, activation='relu', padding='same'))(conv2)
-            if batch_norm: conv2 = BatchNormalization()(conv2)
-            pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-            conv3 = SpectralNormalization(Conv2D(256, 3, activation='relu', padding='same'))(pool2)
-            if batch_norm: conv3 = BatchNormalization()(conv3)
-            conv3 = SpectralNormalization(Conv2D(256, 3, activation='relu', padding='same'))(conv3)
-            if batch_norm: conv3 = BatchNormalization()(conv3)
-            pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-            conv4 = SpectralNormalization(Conv2D(512, 3, activation='relu', padding='same'))(pool3)
-            if batch_norm: conv4 = BatchNormalization()(conv4)
-            conv4 = SpectralNormalization(Conv2D(512, 3, activation='relu', padding='same'))(conv4)
-            if batch_norm: conv4 = BatchNormalization()(conv4)
-            pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
-            conv5 = SpectralNormalization(Conv2D(1024, 3, activation='relu', padding='same'))(pool4)
-            if batch_norm: conv5 = BatchNormalization()(conv5)
-            conv5 = SpectralNormalization(Conv2D(1024, 3, activation='relu', padding='same'))(conv5)
-            if batch_norm: conv5 = BatchNormalization()(conv5)
-            noise = Input((K.int_shape(conv5)[1], K.int_shape(conv5)[2], K.int_shape(conv5)[3]))
-            conv5 = Concatenate()([conv5, noise])
-        else:
-            conv1 = Conv2D(64, 3, activation='relu', padding='same')(inputs)
-            if batch_norm: conv1 = BatchNormalization()(conv1)
-            conv1 = Conv2D(64, 3, activation='relu', padding='same')(conv1)
-            if batch_norm: conv1 = BatchNormalization()(conv1)
-            pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-            conv2 = Conv2D(128, 3, activation='relu', padding='same')(pool1)
-            if batch_norm: conv2 = BatchNormalization()(conv2)
-            conv2 = Conv2D(128, 3, activation='relu', padding='same')(conv2)
-            if batch_norm: conv2 = BatchNormalization()(conv2)
-            pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-            conv3 = Conv2D(256, 3, activation='relu', padding='same')(pool2)
-            if batch_norm: conv3 = BatchNormalization()(conv3)
-            conv3 = Conv2D(256, 3, activation='relu', padding='same')(conv3)
-            if batch_norm: conv3 = BatchNormalization()(conv3)
-            pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-            conv4 = Conv2D(512, 3, activation='relu', padding='same')(pool3)
-            if batch_norm: conv4 = BatchNormalization()(conv4)
-            conv4 = Conv2D(512, 3, activation='relu', padding='same')(conv4)
-            if batch_norm: conv4 = BatchNormalization()(conv4)
-            pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
-            conv5 = Conv2D(1024, 3, activation='relu', padding='same')(pool4)
-            if batch_norm: conv5 = BatchNormalization()(conv5)
-            conv5 = Conv2D(1024, 3, activation='relu', padding='same')(conv5)
-            if batch_norm: conv5 = BatchNormalization()(conv5)
-            noise = Input((K.int_shape(conv5)[1], K.int_shape(conv5)[2], K.int_shape(conv5)[3]))
-            conv5 = Concatenate()([conv5, noise])
-        return conv1, conv2, conv3, conv4, conv5, noise
+        inputs = Input(shape=shape)
+        conv1, pool1 = self._get_scale_down_block(inputs, 64)
+        conv2, pool2 = self._get_scale_down_block(pool1, 128)
+        conv3, pool3 = self._get_scale_down_block(pool2, 256)
+        conv4, pool4 = self._get_scale_down_block(pool3, 512)
+        conv5 = self._add_conv_layer(Conv2D(1024, 3, padding='same'), pool4)
+        conv5 = self._add_conv_layer(Conv2D(1024, 3, padding='same'), conv5)
+        noise = Input((K.int_shape(conv5)[1], K.int_shape(conv5)[2], K.int_shape(conv5)[3]))
+        conv5 = Concatenate()([conv5, noise])
 
-    def get_scale_up(pr_input, out_channels):
-        up6 = Conv2D(
-            512,
-            2,
-            activation='relu',
-            padding='same')(
-            UpSampling2D(
-                size=(
-                    2,
-                    2))(pr_input))
-        merge6 = Concatenate()([conv4, up6])
-        conv6 = Conv2D(512, 3, activation='relu', padding='same')(merge6)
-        conv6 = Conv2D(512, 3, activation='relu', padding='same')(conv6)
+        conv_out = {
+            'conv1': conv1,
+            'conv2': conv2,
+            'conv3': conv3,
+            'conv4': conv4,
+            'conv5': conv5
+        }
 
-        up7 = Conv2D(
-            256,
-            2,
-            activation='relu',
-            padding='same')(
-            UpSampling2D(
-                size=(
-                    2,
-                    2))(conv6))
-        merge7 = Concatenate()([conv3, up7])
-        conv7 = Conv2D(256, 3, activation='relu', padding='same')(merge7)
-        conv7 = Conv2D(256, 3, activation='relu', padding='same')(conv7)
+        ins = {
+            'image_input': inputs,
+            'noise': noise
+        }
 
-        up8 = Conv2D(
-            128,
-            2,
-            activation='relu',
-            padding='same')(
-            UpSampling2D(
-                size=(
-                    2,
-                    2))(conv7))
-        merge8 = Concatenate()([conv2, up8])
-        conv8 = Conv2D(128, 3, activation='relu', padding='same')(merge8)
-        conv8 = Conv2D(128, 3, activation='relu', padding='same')(conv8)
+        return ins, conv_out
 
-        up9 = Conv2D(
-            64,
-            2,
-            activation='relu',
-            padding='same')(
-            UpSampling2D(
-                size=(
-                    2,
-                    2))(conv8))
+    def _get_scale_up(self, downsampling_outs: Dict[str, Layer], out_channels: int):
+        block1 = self._get_scale_up_block(downsampling_outs['conv5'], downsampling_outs['conv4'], 512)
+        block2 = self._get_scale_up_block(block1, downsampling_outs['conv3'], 256)
+        block3 = self._get_scale_up_block(block2, downsampling_outs['conv2'], 128)
+        up9 = Conv2D(64, 2, padding='same')(UpSampling2D(size=(2, 2))(block3))
         up9 = ZeroPadding2D(((0, 1), (0, 1)))(up9)
-        merge9 = Concatenate()([conv1, up9])
-        conv9 = Conv2D(64, 3, activation='relu', padding='same')(merge9)
-        conv9 = Conv2D(64, 3, activation='relu', padding='same')(conv9)
-        conv9 = Conv2D(32, 3, activation='relu', padding='same')(conv9)
+        merge9 = Concatenate()([downsampling_outs['conv1'], up9])
+        conv9 = Conv2D(64, 3, padding='same')(merge9)
+        conv9 = Conv2D(64, 3, padding='same')(conv9)
+        conv9 = Conv2D(32, 3, padding='same')(conv9)
         conv10 = Conv2D(out_channels, 1, activation='tanh')(conv9)
         return conv10
-	
-	#Main part of generator
-    conv1, conv2, conv3, conv4, conv5, noise = get_scale_down(inputs,
-                                                       spectral_norm,
-                                                       batch_norm)
-    satelite_output = get_scale_up(conv5, 3)
-    highmap_output = get_scale_up(conv5, 1)
-    c_out = Concatenate()([highmap_output, satelite_output])
 
-    model = Model([inputs, noise], c_out)
-    model.summary()
-    return model
+    def _patch_discriminator(self, shape: Tuple[int, ...]) -> Model:
+        in_image = Input(shape=shape)
+        cond_image = Input((225, 225, 4))
+        conc_img = Concatenate()([in_image, cond_image])
 
-
-def patch_discriminator(shape, spectral_norm: bool=True, batch_norm: bool=True):
-    """
-    UNet Discriminator models
-
-    @Parameters:
-    :params: shape - shape of image
-    :params: spectral_norm: bool=False - add spectral_normalization layers for each convolution layers
-    :params: batch_norm: bool=False - add batch_normalization layers for each convolution layers
-    :return: model - discriminator
-    """
-
-    init = RandomNormal(stddev=0.02)
-    in_image = Input(shape=shape)
-    cond_image = Input((225, 225, 4))
-    conc_img = Concatenate()([in_image, cond_image])
-    if spectral_norm:
-        d = SpectralNormalization(Conv2D(64, (4, 4), strides=(2, 2), padding='same',
-               kernel_initializer=init))(conc_img)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = SpectralNormalization(Conv2D(128, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init))(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = SpectralNormalization(Conv2D(256, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init))(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = SpectralNormalization(Conv2D(512, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init))(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = SpectralNormalization(Conv2D(512, (4, 4), padding='same', kernel_initializer=init))(d)
-        if batch_norm: d = BatchNormalization()(d)
-        x = LeakyReLU(alpha=0.2)(d)
-        output = SpectralNormalization(Conv2D(1, (4, 4), padding='same',
-                        activation='sigmoid', kernel_initializer=init))(d)
-    else:
-        d = Conv2D(64, (4, 4), strides=(2, 2), padding='same',
-                kernel_initializer=init)(conc_img)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = Conv2D(128, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init)(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = Conv2D(256, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init)(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = Conv2D(512, (4, 4), strides=(2, 2),
-                padding='same', kernel_initializer=init)(d)
-        if batch_norm: d = BatchNormalization()(d)
-        d = LeakyReLU(alpha=0.2)(d)
-        d = Conv2D(512, (4, 4), padding='same', kernel_initializer=init)(d)
-        if batch_norm: d = BatchNormalization()(d)
-        x = LeakyReLU(alpha=0.2)(d)
-        output = Conv2D(1, (4, 4), padding='same',
-                        activation='sigmoid', kernel_initializer=init)(d)
-    model = Model([in_image, cond_image], output)
-    return model
+        block1 = self._discriminator_block(conc_img, 64)
+        block2 = self._discriminator_block(block1, 128)
+        block3 = self._discriminator_block(block2, 256)
+        block4 = self._discriminator_block(block3, 512)
+        block5 = self._discriminator_block(block4, 512, strides=(1, 1))
+        final_layer = Conv2D(1, (4, 4), padding='same', activation='sigmoid', kernel_initializer=self.disc_init_fn)
+        if self.spec_normalization:
+            final_layer = SpectralNormalization(final_layer)
+        output = final_layer(block5)
+        return Model([in_image, cond_image], output)
 
 
 def mount_discriminator_generator(generator, discriminator, image_shape):
-	"""
-	#TODO - add description
-	"""
+    """
+    TODO: describe and tell why we need discriminator.trainable
+    """
     discriminator.trainable = False
     input_gen = Input(shape=image_shape)
     input_noise = Input(shape=(14, 14, 1024))

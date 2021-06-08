@@ -39,7 +39,10 @@ def recombine_heightmap_sattelite_data():
         satelite_data.append(np.asarray(Image.open(filename)))
     satelite_datta_arr = np.array(satelite_data)
     data = np.load('training_data.npz')
-    np.savez('training_data.npz', x=data['x'], y=data['y'], y_satelite=satelite_datta_arr)
+    np.savez('training_data.npz',
+             sketches=data['sketches'],
+             heightmaps=data['heightmaps'],
+             satellites=satelite_datta_arr)
 
 
 def extract_patches_from_raster():
@@ -144,7 +147,6 @@ def compute_ridges(tiff_image):
 
 
 def compute_sketches():
-    count = 0
     height_maps = []
     sketch_maps = []
     for filename in Path('./data_downsampled_blurred').glob('**/*.tif'):
@@ -167,6 +169,13 @@ def compute_sketches():
         print(sketch_map.shape)
         height_maps.append(height_map)
         sketch_maps.append(sketch_map)
-    training_output = np.array(height_maps, dtype=np.float32)
-    training_input = np.array(sketch_maps, dtype=np.float32)
-    np.savez('training_data.npz', x=training_input, y=training_output)
+    height_maps = np.array(height_maps, dtype=np.float32)
+    sketch_maps = np.array(sketch_maps, dtype=np.float32)
+    np.savez('training_data.npz', sketches=sketch_maps, heightmaps=height_maps)
+
+
+if __name__ == "__main__":
+    extract_patches_from_raster()
+    extract_patch_simple_map()
+    compute_sketches()
+    recombine_heightmap_sattelite_data()

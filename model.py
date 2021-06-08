@@ -14,7 +14,7 @@ class TerrainGANBuilder:
         self.spec_normalization = spec_normalization
         self.batch_normalization = batch_normalization
         self.disc_init_fn = RandomNormal(stddev=0.02)
-        self._map_shape = (255, 255)
+        self._map_shape = (225, 225)
         self._unet_repr_size = (14, 14, 1024)
 
     def build_sketch_to_terrain(self) -> Tuple[tensorflow.keras.Model, ...]:
@@ -54,7 +54,7 @@ class TerrainGANBuilder:
         """
         gen_image_shape = self._channels_shape(4)
         gen_out_shape = self._channels_shape(4)  # 1 channel for heightmap, 3 channels for satellites
-        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
+        gen_inputs, downsampling_outs  = self._get_scale_down(gen_image_shape)
 
         upsampling_heightmap_out = self._get_scale_up(downsampling_outs, 1)
         upsampling_satellite_out = self._get_scale_up(downsampling_outs, 3)
@@ -87,7 +87,7 @@ class TerrainGANBuilder:
         out = layer(x)
         if self.batch_normalization:
             out = BatchNormalization()(out)
-        return ReLU(out)
+        return ReLU()(out)
 
     def _get_scale_down_block(self, previous_output, filter_out: int):
         conv = self._add_conv_layer(Conv2D(filter_out, 3, padding='same'), previous_output)

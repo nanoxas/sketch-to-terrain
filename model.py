@@ -34,18 +34,31 @@ class TerrainGANBuilder:
 
     def _build_sts_sequential(self, optimizer):
         gen_image_shape = self._channels_shape(4)
-        gen_out_shape = self._channels_shape(4)  # 1 channel for heightmap, 3 channels for satellites
+        gen_out_shape = self._channels_shape(3)  # 3 channels for satellites
 
         gen_inputs, downsampled_sk_to_height = self._get_scale_down(gen_image_shape)
         upsampling_heightmap_out = self._get_scale_up(downsampled_sk_to_height, 1)
 
-        _, downsampled_height_to_sat = self._get_scale_down(upsampling_heightmap_out)
+        sec_branch_inputs, downsampled_height_to_sat = self._get_scale_down(upsampling_heightmap_out)
         upsampling_satellite_out = self._get_scale_up(downsampled_height_to_sat, 3)
 
-        generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_satellite_out)
-        discriminator = self._patch_discriminator(gen_out_shape)
+        generator = Model([gen_inputs['image_input'], gen_inputs['noise'], sec_branch_inputs['noise']],
+                          [upsampling_heightmap_out, upsampling_satellite_out])
+        discriminator = self._patch_discriminator(gen_out_shape, input_channels=4)
 
-        return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
+        discriminator.compile(loss='binary_crossentropy', optimizer=optimizer)
+        # TODO: explain why trainable False
+        discriminator.trainable = False
+        input_gen = Input(shape=gen_image_shape)
+        input_noise_height = Input(shape=self._unet_repr_size)
+        input_noise_sat = Input(shape=self._unet_repr_size)
+
+        gen_out = generator([input_gen, input_noise_height, input_noise_sat])
+        output_d = discriminator([gen_out, input_gen])
+        full_gan = Model(inputs=[input_gen, input_noise_height, input_noise_sat], outputs=[output_d, gen_out])
+        generator.summary()
+        full_gan.summary()
+        return generator, discriminator, full_gan
 
     def _build_sts_parallel(self, optimizer):
         gen_image_shape = self._channels_shape(4)
@@ -58,18 +71,18 @@ class TerrainGANBuilder:
         concat_out = Concatenate()([upsampling_heightmap_out, upsampling_satellite_out])
 
         generator = Model([gen_inputs['image_input'], gen_inputs['noise']], concat_out)
-        discriminator = self._patch_discriminator(gen_out_shape)
+        discriminator = self._patch_discriminator(gen_out_shape, input_channels=4)
 
         return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
 
     def _build_single(self, optimizer, in_channels: int, out_channels: int):
         gen_image_shape = self._channels_shape(in_channels)  # from heightmaps...
         gen_out_shape = self._channels_shape(out_channels)  # generate sattelites
-        downsampling_outs, gen_inputs = self._get_scale_down(gen_image_shape)
+        gen_inputs, downsampling_outs = self._get_scale_down(gen_image_shape)
         upsampling_out = self._get_scale_up(downsampling_outs, 3)
 
         generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_out)
-        discriminator = self._patch_discriminator(gen_out_shape)
+        discriminator = self._patch_discriminator(gen_out_shape, input_channels=in_channels)
 
         return self._mount_single(optimizer, generator, discriminator, gen_image_shape)
 
@@ -160,9 +173,9 @@ class TerrainGANBuilder:
         conv10 = Conv2D(out_channels, 1, activation='tanh')(conv9)
         return conv10
 
-    def _patch_discriminator(self, shape: Tuple[int, ...]) -> Model:
+    def _patch_discriminator(self, shape: Tuple[int, ...], input_channels: int) -> Model:
         in_image = Input(shape=shape)
-        cond_image = Input((225, 225, 4))
+        cond_image = Input((225, 225, input_channels))
         conc_img = Concatenate()([in_image, cond_image])
 
         block1 = self._discriminator_block(conc_img, 64)

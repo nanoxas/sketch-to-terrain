@@ -22,8 +22,9 @@ class TerrainGANBuilder:
     def build_sketch_to_terrain(self, optimizer) -> Tuple[tensorflow.keras.Model, ...]:
         return self._build_single(optimizer, in_channels=4, out_channels=1)
 
-    def build_terrain_to_satelite(self, optimizer):
-        return self._build_single(optimizer, in_channels=1, out_channels=3)
+    def build_terrain_to_satelite(self, optimizer, sketeches : bool = False):
+        in_channels = 5 if sketeches else 1
+        return self._build_single(optimizer, in_channels=in_channels, out_channels=3)
 
     def build_sketch_to_satelite(self, optimizer, sequential: bool = True):
         if sequential:

@@ -40,27 +40,29 @@ def compile_training_data(sketches: np.ndarray, heightmaps, satellites, mode: st
     if mode == 'SketchToHeightmap':
         return sketches, heightmaps
     elif mode == 'SketchToSatellite':
-        return sketches, satellites / 255.0
+        return sketches, np.concatenate([heightmaps, satellites / 255.0], axis=-1)
     elif mode == 'HeightmapToSatellite':
         return heightmaps, satellites / 255.0
     elif mode == 'SketchHeightmapToSatellite':
-        return np.concatenate([heightmaps, sketches], axis=-1)
+        return np.concatenate([heightmaps, sketches], axis=-1), satellites / 255.0
     else:
         raise ValueError(f'Unrecognised mode: {mode}')
 
 
 def transform_back_input_img(img: np.ndarray, mode: str) -> np.ndarray:
-    if mode in ['SketchToHeightmap' or 'SketchToSatellite']:
+    if mode in ['SketchToHeightmap', 'SketchToSatellite']:
         return img
     elif mode == 'HeightmapToSatellite':
         return np.uint8(img * 127.5 + 127.5)
     elif mode == 'SketchHeightmapToSatellite':
-        heightmap = np.uint8(img[..., 0] * 127.5 + 127.5)
+        heightmap = np.expand_dims(np.uint8(img[..., 0] * 127.5 + 127.5), axis=-1)
         satellite = np.uint8(img[..., 1:] * 255.0)
         return np.concatenate([heightmap, satellite], axis=-1)
+    else:
+        raise ValueError(f'Unrecognised mode: {mode}')
 
 
-def transform_back_predicted_img(img: np.ndarray, mode: str):
+def transform_back_output_img(img: np.ndarray, mode: str):
     if mode == 'SketchToHeightmap':
         return np.uint8(img * 127.5 + 127.5)
     elif mode in ['SketchToSatellite', 'HeightmapToSatellite', 'SketchHeightmapToSatellite']:
@@ -72,8 +74,8 @@ def sample_images(generator, input_img, out_image, step, mode):
     predicted = generator.predict([input_img[0:1], w_noise])[0]
 
     plotable_input_img = transform_back_input_img(input_img[0], mode)
-    plotable_gen_img = transform_back_predicted_img(predicted, mode)
-    plotable_target_img = transform_back_predicted_img(out_image[0], mode)
+    plotable_gen_img = transform_back_output_img(predicted, mode)
+    plotable_target_img = transform_back_output_img(out_image[0], mode)
 
     # input image can be multi-channeled but each channels will always represent a separate map
     im_c = np.concatenate([input_img[0, ..., ch_idx] for ch_idx in range(plotable_input_img.shape[-1])], axis=-1)
@@ -124,7 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode',
                         choices=['SketchToHeightmap', 'SketchToSatellite', 'HeightmapToSatellite',
                                  'SketchHeightmapToSatellite'],
-                        help='Special testing value',
+                        help='Variation of GAN',
                         default='SketchToHeightmap',
                         metavar='')
     parser.add_argument('--learning_rate', default=0.00005,

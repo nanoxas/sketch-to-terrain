@@ -22,8 +22,8 @@ class TerrainGANBuilder:
     def build_sketch_to_terrain(self, optimizer) -> Tuple[tensorflow.keras.Model, ...]:
         return self._build_single(optimizer, in_channels=4, out_channels=1)
 
-    def build_terrain_to_satelite(self, optimizer, sketeches : bool = False):
-        in_channels = 5 if sketeches else 1
+    def build_terrain_to_satelite(self, optimizer, sketches : bool = False):
+        in_channels = 5 if sketches else 1
         return self._build_single(optimizer, in_channels=in_channels, out_channels=3)
 
     def build_sketch_to_satelite(self, optimizer, sequential: bool = True):
@@ -80,7 +80,7 @@ class TerrainGANBuilder:
         gen_image_shape = self._channels_shape(in_channels)  # from heightmaps...
         gen_out_shape = self._channels_shape(out_channels)  # generate sattelites
         gen_inputs, downsampling_outs = self._get_scale_down(gen_image_shape)
-        upsampling_out = self._get_scale_up(downsampling_outs, 3)
+        upsampling_out = self._get_scale_up(downsampling_outs, out_channels)
 
         generator = Model([gen_inputs['image_input'], gen_inputs['noise']], upsampling_out)
         discriminator = self._patch_discriminator(gen_out_shape, input_channels=in_channels)

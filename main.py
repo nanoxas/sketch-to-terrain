@@ -81,8 +81,8 @@ def sample_images(generator, input_img, out_image, step, mode):
     im_c = np.concatenate([input_img[0, ..., ch_idx] for ch_idx in range(plotable_input_img.shape[-1])], axis=-1)
     im_sat = np.concatenate([plotable_target_img, plotable_gen_img], axis=1).squeeze()
 
-    plt.imsave('./outputs/heightmap_conversion' + 'sat' + str(step) + '.png', im_c)
-    plt.imsave('./outputs/heightmap_conversion' + 'sat' + str(step) + '.png', im_sat)
+    plt.imsave('./outputs/input_sampled' + str(step) + '.png', im_c)
+    plt.imsave('./outputs/output_sampled' + str(step) + '.png', im_sat)
 
 
 def train_gan(x: np.ndarray, y: np.ndarray, mode, batch_size=20, n_epochs=100, ):
